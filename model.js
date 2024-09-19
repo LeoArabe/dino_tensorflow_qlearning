@@ -4,10 +4,11 @@ const http = require('http');
 const socketIo = require('socket.io');
 const tf = require('@tensorflow/tfjs-node'); // TensorFlow.js para Node
 const puppeteer = require('puppeteer');
-//const bodyParser = require('body-parser');
+const path = require('path');
 
 const app = express();
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
+
 
 const server = http.createServer(app);
 const io = socketIo(server);

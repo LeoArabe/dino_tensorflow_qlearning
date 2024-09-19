@@ -404,6 +404,7 @@
       this.startListening();
       this.update();
 
+      
       window.addEventListener(Runner.events.RESIZE,
         this.debounceResize.bind(this));
     },
@@ -728,12 +729,14 @@
     executeAction: function (action) {
       switch (action) {
         case 0:
-          this.tRex.jump();
+          this.tRex.startJump(this.currentSpeed); // Usar startJump() com a velocidade atual
+          console.log('pulando')
           break;
         case 1:
-          this.tRex.duck();
+          this.tRex.setDuck(true); // Definir como abaixado
           break;
         case 2:
+          console.log('Nenhuma ação, continuar correndo')
           // Nenhuma ação, continuar correndo
           break;
         default:
@@ -741,21 +744,22 @@
       }
     },
 
+
     /**
      * Método para reiniciar o jogo.
      */
     resetGame: function () {
       this.restart();
-  
+
       // Limpar o intervalo existente
       if (this.gameStateInterval) {
-          clearInterval(this.gameStateInterval);
-          this.gameStateInterval = null;
+        clearInterval(this.gameStateInterval);
+        this.gameStateInterval = null;
       }
-  
+
       // Reiniciar o epsilon se necessário
       epsilon = Math.max(epsilon * epsilonDecay, epsilonMin);
-  },
+    },
 
     /**
      * Bind relevant key / mouse / touch listeners.
@@ -973,20 +977,20 @@
 
     setPlayStatus: function (value) {
       this.playing = value;
-  
+
       if (this.playing) {
-          // Iniciar o intervalo para enviar o estado do jogo
-          this.gameStateInterval = setInterval(() => {
-              this.sendGameState();
-          }, 50);
+        // Iniciar o intervalo para enviar o estado do jogo
+        this.gameStateInterval = setInterval(() => {
+          this.sendGameState();
+        }, 50);
       } else {
-          // Parar o intervalo quando o jogo não estiver mais em reprodução
-          if (this.gameStateInterval) {
-              clearInterval(this.gameStateInterval);
-              this.gameStateInterval = null;
-          }
+        // Parar o intervalo quando o jogo não estiver mais em reprodução
+        if (this.gameStateInterval) {
+          clearInterval(this.gameStateInterval);
+          this.gameStateInterval = null;
+        }
       }
-  },
+    },
 
     /**
      * Whether the game should go into arcade mode.
