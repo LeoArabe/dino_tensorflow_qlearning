@@ -1,12 +1,13 @@
-// server.js
+// server
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const tf = require('@tensorflow/tfjs-node'); // TensorFlow.js para Node
-const bodyParser = require('body-parser');
+const puppeteer = require('puppeteer');
+//const bodyParser = require('body-parser');
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.static('public'));
 
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -124,7 +125,18 @@ io.on('connection', (socket) => {
     });
 });
 
+
+async function openMultipleDinoGames(numInstances) {
+    const browser = await puppeteer.launch({ headless: false }); // headless: false para visualizar o navegador
+    for (let i = 0; i < numInstances; i++) {
+        const page = await browser.newPage();
+        await page.goto('http://localhost:3000'); // Acessa o jogo servido pelo Express
+    }
+}
+
+
 // Iniciar o servidor
 server.listen(port, () => {
     console.log(`Servidor rodando na porta ${port}`);
+    openMultipleDinoGames(5); // Abre 5 instâncias do jogo
 });
