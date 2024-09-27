@@ -16,6 +16,41 @@
     if (Runner.instance_) {
       return Runner.instance_;
     }
+
+    Runner.prototype.simulateKeyPress = function(keyCode) {
+      // Simular evento de tecla pressionada (keydown)
+      var keyDownEvent = new KeyboardEvent('keydown', {
+        keyCode: keyCode,
+        which: keyCode,
+        bubbles: true,
+        cancelable: true
+      });
+      document.dispatchEvent(keyDownEvent);
+    
+      // Determinar a duração do pressionamento da tecla
+      var keyPressDuration = this.getKeyPressDuration();
+    
+      // Simular evento de tecla liberada (keyup) após a duração
+      var keyUpEvent = new KeyboardEvent('keyup', {
+        keyCode: keyCode,
+        which: keyCode,
+        bubbles: true,
+        cancelable: true
+      });
+      setTimeout(function() {
+        document.dispatchEvent(keyUpEvent);
+      }, keyPressDuration);
+    };
+    
+    // Função para determinar a duração do pressionamento da tecla
+    Runner.prototype.getKeyPressDuration = function() {
+      // Você pode definir uma lógica para determinar a duração
+      // Por exemplo, basear-se na velocidade atual ou usar um valor fixo
+      return 500; // Duração em milissegundos
+    };
+    
+
+
     Runner.instance_ = this;
 
     this.outerContainerEl = document.querySelector(outerContainerId);
@@ -71,21 +106,6 @@
     } else {
       this.loadImages();
     }
-
-
-    // Inicialização do Socket.IO
-    this.socket = io();
-
-    // Adicionar listeners para eventos Socket.IO
-    this.socket.on('action', (action) => {
-      console.log('Ação recebida:', action);
-      this.executeAction(action);
-    });
-
-    this.socket.on('reset', () => {
-      console.log('Reiniciando o jogo...');
-      this.resetGame();
-    });
 
   }
   window['Runner'] = Runner;
@@ -404,7 +424,7 @@
       this.startListening();
       this.update();
 
-      
+
       window.addEventListener(Runner.events.RESIZE,
         this.debounceResize.bind(this));
     },
@@ -728,16 +748,14 @@
      */
     executeAction: function (action) {
       switch (action) {
-        case 0:
-          this.tRex.startJump(this.currentSpeed); // Usar startJump() com a velocidade atual
-          console.log('pulando')
+        case 0: // Pular
+          this.simulateKeyPress(38); // Código da tecla para seta para cima
           break;
-        case 1:
-          this.tRex.setDuck(true); // Definir como abaixado
+        case 1: // Abaixar
+          this.simulateKeyPress(40); // Código da tecla para seta para baixo
           break;
-        case 2:
-          console.log('Nenhuma ação, continuar correndo')
-          // Nenhuma ação, continuar correndo
+        case 2: // Nenhuma ação
+          // Não faz nada
           break;
         default:
           console.warn('Ação desconhecida:', action);
@@ -982,7 +1000,7 @@
         // Iniciar o intervalo para enviar o estado do jogo
         this.gameStateInterval = setInterval(() => {
           this.sendGameState();
-        }, 50);
+        }, 200);
       } else {
         // Parar o intervalo quando o jogo não estiver mais em reprodução
         if (this.gameStateInterval) {
@@ -2903,7 +2921,36 @@
 var HIDDEN_CLASS = 'hidden';
 
 function onDocumentLoad() {
-  new Runner('.interstitial-wrapper');
+
+  var runner = new Runner('.interstitial-wrapper');
+
+  // Conectar ao servidor via Socket.IO
+  var socket = io();
+
+  // Ouvir o evento 'startGame' enviado pelo servidor
+  socket.on('startGame', () => {
+    // Iniciar o jogo quando o servidor der o sinal
+    setTimeout(() => {
+      // Para fazer o T-Rex pular
+      runner.simulateKeyPress(38);
+
+    }, 1500);
+
+  });
+
+  // Adicionar listeners para eventos Socket.IO
+  socket.on('action', (action) => {
+    console.log('Ação recebida:', action);
+    runner.executeAction(action);
+  });
+
+  socket.on('reset', () => {
+    console.log('Reiniciando o jogo...');
+    runner.resetGame();
+  });
+
+  // Armazenar o socket na instância do Runner, se necessário
+  runner.socket = socket;
 }
 
 document.addEventListener('DOMContentLoaded', onDocumentLoad);
