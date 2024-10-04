@@ -2,10 +2,13 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const tf = require('@tensorflow/tfjs-node');
+const tf = require('@tensorflow/tfjs-node-gpu');
 const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
+const { exec } = require('child_process');
+
+console.log('Backend TensorFlow-GPU:', tf.getBackend());
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -29,8 +32,12 @@ const TRAINING_INTERVAL = 100;  // Intervalo de treinamento em milissegundos
 let trainingStep = 0;           // Variável para contar os passos de treinamento
 const SAVE_MODEL_INTERVAL = 1000; // Salvar o modelo a cada 1000 passos de treinamento (ajuste conforme necessário)
 
-
 let model;
+
+// Variáveis para armazenar as métricas
+const trainingLosses = [];
+const topScoresOverTime = [];
+const agentsPerformance = {};
 
 // Funções de Q-Learning (criar modelo, escolher ação, treinar modelo)
 function createDinoModel() {
@@ -60,7 +67,6 @@ async function loadModel() {
     }
 }
 
-
 // Função para salvar o modelo
 async function saveModel(model) {
     try {
@@ -80,14 +86,20 @@ function chooseAction(state, model, epsilon) {
         const qValues = model.predict(stateTensor);
         const action = qValues.argMax(1).dataSync()[0];
         stateTensor.dispose();
+        qValues.dispose();
         return action;
     }
 }
 
 // Evento de conexão do Socket.IO
 io.on('connection', (socket) => {
-    console.log('Novo cliente conectado');
+    console.log(`Novo cliente conectado`);
     socket.emit('startGame');
+
+    agentsPerformance[socket.id] = {
+        score: 0,
+        maxScore: 0
+    };
 
     // Variáveis para armazenar o último estado e ação
     let lastState = null;
@@ -95,6 +107,28 @@ io.on('connection', (socket) => {
 
     // Evento para receber o estado do jogo
     socket.on('state', async (gameState) => {
+        // Atualizar a pontuação do agente
+        agentsPerformance[socket.id].score = gameState.scoreAtual;
+
+        if (gameState.scoreAtual > agentsPerformance[socket.id].maxScore) {
+            agentsPerformance[socket.id].maxScore = gameState.scoreAtual;
+
+            const topScoreEntry = {
+                time: Date.now(),
+                agentId: socket.id,
+                score: gameState.scoreAtual
+            };
+            topScoresOverTime.push(topScoreEntry);
+
+            // Emitir o novo top score
+            io.emit('topScoreUpdate', topScoreEntry);
+
+            // Limitar o tamanho de topScoresOverTime
+            if (topScoresOverTime.length > 1000) {
+                topScoresOverTime.shift();
+            }
+        }
+
         // Extrair o estado atual
         const currentState = [
             gameState.dinoState,
@@ -119,13 +153,8 @@ io.on('connection', (socket) => {
             return;
         }
 
-        let scoreReal = Math.round(currentState[4]*0.025);
         // Escolher a ação usando epsilon-greedy
         const action = chooseAction(currentState, model, epsilon);
-        if(scoreReal > 90){
-            console.log('Current State:', scoreReal);
-        }
-        //console.log('Chosen Action:', action);
 
         // Enviar a ação escolhida para o cliente
         socket.emit('action', action);
@@ -135,12 +164,17 @@ io.on('connection', (socket) => {
             // Definir a recompensa
             const reward = gameState.gameOver ? -100 : 1; // Penalidade ao colidir, recompensa por sobreviver
 
+            const agentPerformance = agentsPerformance[socket.id];
+            const priority = agentPerformance.maxScore;
+
             replayBuffer.push({
+                agentId: socket.id,
                 state: lastState,
                 action: lastAction,
-                reward: reward,
+                reward,
                 nextState: currentState,
-                done: gameState.gameOver
+                done: gameState.gameOver,
+                priority: priority // Inclua a prioridade aqui
             });
 
             // Limitar o tamanho do buffer
@@ -156,18 +190,35 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('Cliente desconectado');
+        delete agentsPerformance[socket.id];
     });
 });
+
+// Função para amostrar experiências com base na prioridade
+function sampleExperiences(batchSize) {
+    // Calcular a soma das prioridades
+    const totalPriority = replayBuffer.reduce((sum, exp) => sum + exp.priority, 0);
+
+    const batch = [];
+    for (let i = 0; i < batchSize; i++) {
+        const rand = Math.random() * totalPriority;
+        let cumulative = 0;
+        for (const exp of replayBuffer) {
+            cumulative += exp.priority;
+            if (cumulative >= rand) {
+                batch.push(exp);
+                break;
+            }
+        }
+    }
+    return batch;
+}
 
 // Treinar o modelo e salvá-lo periodicamente usando experiências do replay buffer
 setInterval(async () => {
     if (replayBuffer.length >= BATCH_SIZE) {
-        // Amostrar um minibatch aleatório
-        const batch = [];
-        for (let i = 0; i < BATCH_SIZE; i++) {
-            const index = Math.floor(Math.random() * replayBuffer.length);
-            batch.push(replayBuffer[index]);
-        }
+        // Amostrar um minibatch com base nas prioridades
+        const batch = sampleExperiences(BATCH_SIZE);
 
         // Preparar os dados para treinamento
         const states = batch.map(e => e.state);
@@ -195,7 +246,25 @@ setInterval(async () => {
 
         // Treinar o modelo
         const targetsTensor = tf.tensor2d(qValuesArray);
-        await model.fit(statesTensor, targetsTensor, { epochs: 1, verbose: 0 });
+        const history = await model.fit(statesTensor, targetsTensor, { epochs: 1, verbose: 0 });
+
+        // Armazenar a perda (loss)
+        const loss = history.history.loss[0];
+        trainingLosses.push({
+            step: trainingStep,
+            loss: loss
+        });
+
+        // Emitir o novo valor de perda
+        io.emit('trainingLossUpdate', {
+            step: trainingStep,
+            loss: loss
+        });
+
+        // Limitar o tamanho de trainingLosses
+        if (trainingLosses.length > 1000) {
+            trainingLosses.shift();
+        }
 
         // Liberar memória
         statesTensor.dispose();
@@ -224,14 +293,23 @@ async function openMultipleDinoGames(numInstances) {
 
     for (let i = 0; i < numInstances; i++) {
         const browser = await puppeteer.launch({
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', // Caminho do Chrome instalado
             headless: true,
             args: [
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
-                `--window-size=${windowWidth},${windowHeight}`
+                '--enable-gpu-rasterization',
+                '--enable-oop-rasterization',
+                '--enable-accelerated-2d-canvas',
+                '--enable-webgl',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--enable-features=HeadlessMode',
+                '--disable-software-rasterizer',
             ],
-        });
+        });        
+        
         const page = await browser.newPage();
         await page.goto('http://localhost:3000');
 
@@ -246,13 +324,59 @@ async function openMultipleDinoGames(numInstances) {
     }
 }
 
+// Endpoints da API para fornecer os dados
+app.get('/api/training-loss', (req, res) => {
+    res.json(trainingLosses);
+});
+
+app.get('/api/top-scores', (req, res) => {
+    res.json(topScoresOverTime);
+});
+
+// Função para abrir o dashboard no navegador
+function openDashboard() {
+    const dashboardUrl = `http://localhost:${port}/dashboard.html`;
+
+    // Abrir a URL no navegador padrão
+    let startCommand;
+
+    switch (process.platform) {
+        case 'darwin':
+            startCommand = `open ${dashboardUrl}`;
+            break;
+        case 'win32':
+            startCommand = `start ${dashboardUrl}`;
+            break;
+        case 'linux':
+            startCommand = `xdg-open ${dashboardUrl}`;
+            break;
+        default:
+            console.log(`Por favor, abra manualmente o dashboard em: ${dashboardUrl}`);
+            return;
+    }
+
+    exec(startCommand, (error) => {
+        if (error) {
+            console.error(`Erro ao abrir o dashboard: ${error}`);
+        } else {
+            console.log(`Dashboard aberto em ${dashboardUrl}`);
+        }
+    });
+}
 
 // Função para carregar o modelo e iniciar o servidor
 async function init() {
     model = await loadModel(); // Certifique-se de que o modelo está carregado
     server.listen(port, () => {
         console.log(`Servidor rodando na porta ${port}`);
-        openMultipleDinoGames(50); // Abre 5 instâncias do jogo
+
+        // Abrir o dashboard
+        openDashboard();
+
+        // Aguardar alguns segundos antes de abrir os jogos
+        setTimeout(() => {
+            openMultipleDinoGames(100); // Abre 40 instâncias do jogo
+        }, 5000); // Aguarda 5 segundos
     });
 }
 

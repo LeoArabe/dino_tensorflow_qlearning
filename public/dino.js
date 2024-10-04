@@ -705,6 +705,7 @@
         tamObstaculo: this.getTamanhoObstaculo(),
         velJogo: this.getVelocidadeJogo(),
         scoreAtual: this.getScoreAtual(),
+        getHighScoreAtual: this.getHighScoreAtual(),
         gameOver: this.crashed
       };
     },
@@ -741,6 +742,10 @@
 
     getScoreAtual: function () {
       return this.distanceRan;
+    },
+
+    getHighScoreAtual: function () {
+      return this.highestScore;
     },
 
     /**

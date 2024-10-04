@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Dashboard de Treinamento</title>
+    <!-- Incluir Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Incluir Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+
+<body>
+    <h1>Dashboard de Treinamento</h1>
+
+    <div>
+        <canvas id="lossChart" width="600" height="400"></canvas>
+    </div>
+    <div>
+        <canvas id="topScoresChart" width="600" height="400"></canvas>
+    </div>
+
+    <script>
+        const lossCtx = document.getElementById('lossChart').getContext('2d');
+        const topScoresCtx = document.getElementById('topScoresChart').getContext('2d');
+
+        // Dados iniciais
+        let lossData = [];
+        let topScoresData = [];
+
+        // Função para atualizar o gráfico de perda
+        function updateLossChart() {
+            fetch('/api/training-loss')
+                .then(response => response.json())
+                .then(data => {
+                    lossData = data;
+                    const steps = lossData.map(item => item.step);
+                    const losses = lossData.map(item => item.loss);
+
+                    lossChart.data.labels = steps;
+                    lossChart.data.datasets[0].data = losses;
+                    lossChart.update();
+                });
+        }
+
+        // Função para atualizar o gráfico de melhores pontuadores
+        function updateTopScoresChart() {
+            fetch('/api/top-scores')
+                .then(response => response.json())
+                .then(data => {
+                    topScoresData = data;
+                    const times = topScoresData.map(item => new Date(item.time).toLocaleTimeString());
+                    const scores = topScoresData.map(item => item.score);
+
+                    topScoresChart.data.labels = times;
+                    topScoresChart.data.datasets[0].data = scores;
+                    topScoresChart.update();
+                });
+        }
+
+        // Configurar o gráfico de perda
+        const lossChart = new Chart(lossCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Perda de Treinamento',
+                    data: [],
+                    borderColor: 'blue',
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Passos de Treinamento'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Perda (Loss)'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Configurar o gráfico de melhores pontuadores
+        const topScoresChart = new Chart(topScoresCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Melhores Pontuações',
+                    data: [],
+                    borderColor: 'green',
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Horário'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Pontuação'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Atualizar os gráficos periodicamente
+        setInterval(() => {
+            updateLossChart();
+            updateTopScoresChart();
+        }, 1000); // Atualiza a cada 1 segundo
+
+        const socket = io();
+
+        // Receber atualizações de perda
+        socket.on('trainingLossUpdate', (data) => {
+            trainingLosses.push(data);
+            lossChart.data.labels.push(data.step);
+            lossChart.data.datasets[0].data.push(data.loss);
+            lossChart.update();
+        });
+
+        // Receber atualizações de melhores pontuações
+        socket.on('topScoreUpdate', (data) => {
+            topScoresOverTime.push(data);
+            const timeLabel = new Date(data.time).toLocaleTimeString();
+            topScoresChart.data.labels.push(timeLabel);
+            topScoresChart.data.datasets[0].data.push(data.score);
+            topScoresChart.update();
+        });
+    </script>
+</body>
+
+</html>

@@ -2,8 +2,9 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const tf = require('@tensorflow/tfjs-node');
+const tf = require('@tensorflow/tfjs-node-gpu');
 const path = require('path');
+const puppeteer = require('puppeteer');
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -11,7 +12,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const io = socketIo(server);
 
-const port = 3000;
+const port = 3001;
 
 // Variável para o modelo
 let model;
@@ -80,6 +81,37 @@ io.on('connection', (socket) => {
     });
 });
 
+
+async function openTestDinoGames() {
+    const screenWidth = 900; // Largura da tela padrão, ajuste conforme necessário
+    const screenHeight = 900; // Altura da tela padrão, ajuste conforme necessário
+
+    const windowWidth = Math.floor(screenWidth * 0.8); // 20% menor em largura
+    const windowHeight = Math.floor(screenHeight / 3); // 3x menor em altura
+
+        const browser = await puppeteer.launch({
+            headless: false,
+            args: [
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                `--window-size=${windowWidth},${windowHeight}`
+            ],
+        });
+        const page = await browser.newPage();
+        await page.goto('http://localhost:3001');
+
+        // Desabilitar o throttling na página
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(document, 'hidden', { value: false });
+            Object.defineProperty(document, 'visibilityState', { value: 'visible' });
+            document.addEventListener('visibilitychange', (event) => {
+                event.stopImmediatePropagation();
+            }, true);
+        });
+    }
+
+
 // Função para carregar o modelo e iniciar o servidor
 async function init() {
     model = await loadModel(); // Carrega o modelo treinado
@@ -87,6 +119,7 @@ async function init() {
         console.log(`Servidor rodando na porta ${port}`);
         // Você pode abrir manualmente o jogo no navegador em http://localhost:3000
     });
+    openTestDinoGames()
 }
 
 init();
