@@ -2,13 +2,14 @@
   "name": "dino",
   "version": "1.0.0",
   "scripts": {
-    "start": "node model.js"
+    "start": "node server.js"
   },
   "devDependencies": {
     "puppeteer": "^23.5.0"
   },
   "dependencies": {
-    "@tensorflow/tfjs-node-gpu": "^4.21.0",
+    "@tensorflow/tfjs-node-gpu": "^3.9.0",
+    "axios": "^1.7.7",
     "express": "^4.21.0",
     "socket.io": "^4.8.0"
   }
