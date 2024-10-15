@@ -4,7 +4,6 @@ class GameEngine {
   }
 
   reset() {
-    // Inicialize o estado do jogo
     this.tRex = {
       xPos: 50,
       yPos: 0,
@@ -25,12 +24,13 @@ class GameEngine {
     this.currentSpeed = 6;
     this.maxSpeed = 13;
     this.acceleration = 0.001;
-    this.gravity = 0.6;
+    this.gravity = -0.6;
+    this.jumpVelocity = 12;
     this.groundYPos = 0;
     this.time = Date.now();
     this.deltaTime = 0;
     this.distanceRan = 0;
-    this.scoreCoefficient = 0.1; // Coeficiente ajustado
+    this.scoreCoefficient = 0.025;
     this.msPerFrame = 1000 / 60;
     this.nextObstacleDistance = null;
     this.dimensions = {
@@ -46,26 +46,16 @@ class GameEngine {
     this.deltaTime = now - (this.time || now);
     this.time = now;
 
-    // Tratar a ação do jogador
     this.handleAction(action);
-
-    // Atualizar o T-Rex
     this.updateTRex();
-
-    // Atualizar os obstáculos
     this.updateObstacles();
 
-    // Verificar colisões
     if (this.checkCollision()) {
       this.gameOver = true;
     } else {
-      // Atualizar a distância percorrida
       this.distanceRan += (this.currentSpeed * this.deltaTime) / this.msPerFrame;
-
-      // Atualizar o score
       this.score = Math.floor(this.distanceRan * this.scoreCoefficient);
 
-      // Aumentar a velocidade do jogo gradualmente
       if (this.currentSpeed < this.maxSpeed) {
         this.currentSpeed += this.acceleration * (this.deltaTime / this.msPerFrame);
       }
@@ -73,16 +63,22 @@ class GameEngine {
   }
 
   handleAction(action) {
-    // 0: pular, 1: abaixar, 2: nada
-    if (action === 0 && !this.tRex.jumping) {
+    if (action === 0 && !this.tRex.jumping && !this.tRex.ducking) {
+      // Pular
       this.tRex.jumping = true;
-      this.tRex.velocityY = -12; // Velocidade inicial do pulo ajustada
+      this.tRex.velocityY = this.jumpVelocity;
     } else if (action === 1 && !this.tRex.jumping) {
+      // Abaixar
       this.tRex.ducking = true;
-      this.tRex.height = 25; // Altura reduzida ao abaixar
-    } else {
-      this.tRex.ducking = false;
-      this.tRex.height = 47; // Altura normal
+      this.tRex.height = 25;
+      this.tRex.width = 59;
+    } else if (action === 2) {
+      // Cancelar abaixar
+      if (this.tRex.ducking) {
+        this.tRex.ducking = false;
+        this.tRex.height = 47;
+        this.tRex.width = 44;
+      }
     }
   }
 
@@ -91,7 +87,7 @@ class GameEngine {
       this.tRex.velocityY += this.gravity;
       this.tRex.yPos += this.tRex.velocityY;
 
-      if (this.tRex.yPos >= 0) {
+      if (this.tRex.yPos <= 0) {
         this.tRex.yPos = 0;
         this.tRex.jumping = false;
         this.tRex.velocityY = 0;
@@ -100,35 +96,27 @@ class GameEngine {
   }
 
   updateObstacles() {
-    // Atualizar obstáculos existentes
     this.obstacles.forEach((obstacle) => {
       obstacle.xPos -= this.currentSpeed * (this.deltaTime / this.msPerFrame);
     });
 
-    // Remover obstáculos que saíram da tela
     this.obstacles = this.obstacles.filter(
       (obstacle) => obstacle.xPos + obstacle.width > 0
     );
 
-    // Adicionar novos obstáculos conforme necessário
     if (this.shouldAddNewObstacle()) {
       this.addNewObstacle();
     }
   }
 
   shouldAddNewObstacle() {
-    // Adicionar obstáculos somente após o score atingir 40
-    if (this.score < 40) {
-      return false;
-    }
-
     if (this.obstacles.length === 0) return true;
 
     const lastObstacle = this.obstacles[this.obstacles.length - 1];
 
     if (!this.nextObstacleDistance) {
-      const minGap = 100; // Gap mínimo ajustado
-      const maxGap = 300; // Gap máximo ajustado
+      const minGap = (100 + this.currentSpeed * 10) * 1.2;
+      const maxGap = (200 + this.currentSpeed * 14) * 1.2;
       this.nextObstacleDistance =
         Math.floor(Math.random() * (maxGap - minGap + 1)) + minGap;
     }
@@ -140,19 +128,26 @@ class GameEngine {
   }
 
   addNewObstacle() {
-    // Defina tipos de obstáculos com diferentes tamanhos e caixas de colisão
-    const obstacleTypes = [
-      {
-        width: 17,
-        height: 35,
-        yPos: 0,
-        collisionBoxes: [
-          { x: 0, y: 7, width: 5, height: 27 },
-          { x: 4, y: 0, width: 6, height: 34 },
-          { x: 10, y: 4, width: 7, height: 14 },
-        ],
-      },
-      // Adicione outros tipos de obstáculos conforme necessário
+    const obstacleTypes = this.score >= 300 ? [
+      // Variantes de cactos e pássaros após 300 pontos
+      { width: 30, height: 35, yPos: 0 },
+      { width: 40, height: 35, yPos: 0 },
+      { width: 50, height: 35, yPos: 0 },
+      { width: 70, height: 35, yPos: 0 },
+      { width: 25, height: 45, yPos: 0 },
+      { width: 45, height: 45, yPos: 0 },
+      { width: 75, height: 45, yPos: 0 },
+      { width: 30, height: 25, yPos: 30 }, // Pássaro voador baixo
+      { width: 30, height: 25, yPos: 80 }, // Pássaro voador alto
+    ] : [
+      // Cactos antes dos 300 pontos
+      { width: 30, height: 35, yPos: 0 },
+      { width: 40, height: 35, yPos: 0 },
+      { width: 50, height: 35, yPos: 0 },
+      { width: 70, height: 35, yPos: 0 },
+      { width: 25, height: 45, yPos: 0 },
+      { width: 45, height: 45, yPos: 0 },
+      { width: 75, height: 45, yPos: 0 },
     ];
 
     const obstacleType =
@@ -163,7 +158,7 @@ class GameEngine {
       yPos: obstacleType.yPos,
       width: obstacleType.width,
       height: obstacleType.height,
-      collisionBoxes: obstacleType.collisionBoxes,
+      collisionBoxes: [{ x: 0, y: 0, width: obstacleType.width, height: obstacleType.height }],
     };
 
     this.obstacles.push(obstacle);
@@ -171,7 +166,6 @@ class GameEngine {
   }
 
   checkCollision() {
-    // Verificar colisões entre o T-Rex e os obstáculos
     for (let obstacle of this.obstacles) {
       if (this.isColliding(this.tRex, obstacle)) {
         return true;
@@ -184,7 +178,7 @@ class GameEngine {
     for (let tRexBox of tRex.collisionBoxes) {
       const adjTrexBox = {
         x: tRex.xPos + tRexBox.x,
-        y: tRex.yPos + tRexBox.y,
+        y: this.dimensions.HEIGHT - tRex.height - tRex.yPos + tRexBox.y,
         width: tRexBox.width,
         height: tRexBox.height,
       };
@@ -192,7 +186,7 @@ class GameEngine {
       for (let obstacleBox of obstacle.collisionBoxes) {
         const adjObstacleBox = {
           x: obstacle.xPos + obstacleBox.x,
-          y: obstacle.yPos + obstacleBox.y,
+          y: this.dimensions.HEIGHT - obstacle.height - obstacle.yPos + obstacleBox.y,
           width: obstacleBox.width,
           height: obstacleBox.height,
         };
@@ -215,19 +209,18 @@ class GameEngine {
   }
 
   getState() {
-    // Retorne o estado atual do jogo
     return {
       tRexX: this.tRex.xPos,
       tRexY: this.tRex.yPos,
       tRexVelocityY: this.tRex.velocityY,
-      obstacles: this.obstacles.map((obstacle) => ({
-        xPos: obstacle.xPos,
-        yPos: obstacle.yPos,
-        width: obstacle.width,
-        height: obstacle.height,
-      })),
+      tRexOnGround: this.tRex.yPos === 0 ? 1 : 0,
+      obstacleX: this.obstacles.length > 0 ? this.obstacles[0].xPos : null,
+      obstacleY: this.obstacles.length > 0 ? this.obstacles[0].yPos : null,
+      obstacleWidth: this.obstacles.length > 0 ? this.obstacles[0].width : null,
+      obstacleHeight: this.obstacles.length > 0 ? this.obstacles[0].height : null,
       score: this.score,
       gameOver: this.gameOver,
+      currentSpeed: this.currentSpeed,
     };
   }
 }

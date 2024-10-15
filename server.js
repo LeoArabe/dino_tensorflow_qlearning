@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -18,10 +17,9 @@ let generationData = [];
 // Servir arquivos estáticos da pasta 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
-const numWorkers = os.cpus().length; // Usar o número de CPUs disponíveis
-const numInstancesPerWorker = 5; // Número de jogos por worker para avaliar o fitness
+const numWorkers = os.cpus().length - 1; // Usar o número de CPUs disponíveis
 const populationSize = numWorkers;
-const maxGenerations = 500; // Aumentado para 500 gerações
+const maxGenerations = 300;
 
 // Definição de eliteSize
 const eliteSize = Math.max(1, Math.floor(populationSize * 0.2)); // Pelo menos 1
@@ -33,18 +31,13 @@ let generation = 0;
 function createRandomModel() {
   const model = tf.sequential();
   model.add(tf.layers.dense({
-    units: 128,
+    units: 32,
     inputShape: [7],
     activation: 'relu',
     kernelInitializer: 'heNormal'
   }));
   model.add(tf.layers.dense({
-    units: 128,
-    activation: 'relu',
-    kernelInitializer: 'heNormal'
-  }));
-  model.add(tf.layers.dense({
-    units: 64,
+    units: 16,
     activation: 'relu',
     kernelInitializer: 'heNormal'
   }));
@@ -53,6 +46,17 @@ function createRandomModel() {
     activation: 'softmax'
   }));
   return model;
+}
+
+// Função para determinar o número de instâncias por worker com base na geração atual
+function getNumInstancesPerWorker(currentGeneration, maxGenerations) {
+  const initialInstances = 1; // Ajuste conforme necessário
+  const finalInstances = 1; // Ajuste conforme necessário
+  
+  const ratio = currentGeneration / maxGenerations; // Progresso da geração
+  
+  // Interpolar entre o valor inicial e final
+  return Math.floor(initialInstances - (initialInstances - finalInstances) * ratio);
 }
 
 // Função para inicializar a população
@@ -199,6 +203,8 @@ function createNextGeneration(elite, currentGeneration) {
 function evaluatePopulation(currentGeneration) {
   return new Promise((resolve) => {
     let workersFinished = 0;
+    const totalIndividuals = population.length;
+    const numInstancesPerWorker = getNumInstancesPerWorker(currentGeneration, maxGenerations);
 
     for (let i = 0; i < population.length; i++) {
       const individual = population[i];
@@ -223,9 +229,25 @@ function evaluatePopulation(currentGeneration) {
 
           console.log(`Worker ${message.workerId} retornou fitness: ${message.fitness}`);
 
+          // Calcular o progresso em porcentagem
+          const progressPercentage = ((workersFinished / totalIndividuals) * 100).toFixed(2);
+          console.log(`Progresso da geração ${currentGeneration + 1}: ${progressPercentage}%`);
+
+          // Enviar o progresso para o front-end via Socket.IO
+          io.emit('generationProgress', {
+            generation: currentGeneration + 1,
+            progress: progressPercentage,
+          });
+
           if (workersFinished === population.length) {
             resolve();
           }
+        } else if (message.type === 'gameState') {
+          // Enviar o estado do jogo para o cliente via Socket.IO
+          io.emit('gameState', {
+            workerId: message.workerId,
+            gameState: message.gameState,
+          });
         }
       });
 
@@ -315,3 +337,8 @@ server.listen(PORT, () => {
 
 // Iniciar o algoritmo genético após o servidor estar rodando
 runGenerations();
+
+// Rota para servir o arquivo HTML principal
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});

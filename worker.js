@@ -1,16 +1,13 @@
-// worker.js
 const { workerData, parentPort } = require('worker_threads');
 const GameEngine = require('./gameEngine');
 const tf = require('@tensorflow/tfjs-node-gpu');
 
-// Dados recebidos do server.js
 const workerId = workerData.workerId;
 const numInstances = workerData.numInstances || 1;
-let modelWeights = workerData.modelWeights; // Pesos recebidos do servidor
+let modelWeights = workerData.modelWeights;
 const currentGeneration = workerData.currentGeneration;
 const maxGenerations = workerData.maxGenerations;
 
-// Array para armazenar as instâncias do jogo
 const gameEngines = [];
 
 // Inicializar as instâncias do jogo
@@ -22,18 +19,13 @@ for (let i = 0; i < numInstances; i++) {
 function createModel() {
   const model = tf.sequential();
   model.add(tf.layers.dense({
-    units: 128,
+    units: 32,
     inputShape: [7],
     activation: 'relu',
     kernelInitializer: 'heNormal'
   }));
   model.add(tf.layers.dense({
-    units: 128,
-    activation: 'relu',
-    kernelInitializer: 'heNormal'
-  }));
-  model.add(tf.layers.dense({
-    units: 64,
+    units: 16,
     activation: 'relu',
     kernelInitializer: 'heNormal'
   }));
@@ -50,10 +42,13 @@ let model;
 async function loadModel() {
   model = createModel();
   if (modelWeights) {
-    const weightTensors = modelWeights.map(w => tf.tensor(w, undefined, 'float32'));
-    model.setWeights(weightTensors);
+    try {
+      const weightTensors = modelWeights.map(w => tf.tensor(w, undefined, 'float32'));
+      model.setWeights(weightTensors);
+    } catch (error) {
+      console.error(`Erro ao carregar pesos no worker ${workerId}:`, error);
+    }
   } else {
-    // Inicializar pesos aleatoriamente se não forem fornecidos
     console.log(`Worker ${workerId}: Inicializando modelo com pesos aleatórios`);
   }
 }
@@ -66,7 +61,7 @@ function normalizeState(state) {
 
   const distanceToObstacle = state.obstacleX !== null
     ? (state.obstacleX - state.tRexX) / maxDistance
-    : 1; // 1 indica que não há obstáculo próximo
+    : 1;
 
   const obstacleInSight = state.obstacleX !== null ? 1 : 0;
   const tRexOnGround = state.tRexY === 0 ? 1 : 0;
@@ -84,12 +79,13 @@ function normalizeState(state) {
 
 // Função para escolher a ação usando o modelo
 function chooseAction(state) {
-  const normalizedState = normalizeState(state);
-  const stateTensor = tf.tensor2d([normalizedState]);
-  const actionProbs = model.predict(stateTensor);
-  const action = actionProbs.argMax(1).dataSync()[0];
-  tf.dispose([stateTensor, actionProbs]);
-  return action;
+  return tf.tidy(() => {
+    const normalizedState = normalizeState(state);
+    const stateTensor = tf.tensor2d([normalizedState], undefined, 'float32');
+    const actionProbs = model.predict(stateTensor);
+    const action = actionProbs.argMax(1).dataSync()[0];
+    return action;
+  });
 }
 
 // Função para executar o jogo e calcular o fitness
@@ -108,7 +104,32 @@ async function runGames() {
       const state = gameEngine.getState();
       const action = chooseAction(state);
       gameEngine.update(action);
+
+      // Enviar o estado do jogo para o servidor periodicamente
+      parentPort.postMessage({
+        type: 'gameState',
+        workerId: workerId,
+        gameState: {
+          tRex: state.tRex,
+          obstacles: state.obstacles,
+          score: state.score,
+          gameOver: state.gameOver,
+        },
+      });
     }
+
+    // Enviar o estado final do jogo após o término
+    const finalState = gameEngine.getState();
+    parentPort.postMessage({
+      type: 'gameState',
+      workerId: workerId,
+      gameState: {
+        tRex: finalState.tRex,
+        obstacles: finalState.obstacles,
+        score: finalState.score,
+        gameOver: finalState.gameOver,
+      },
+    });
 
     totalScore += gameEngine.score;
   }

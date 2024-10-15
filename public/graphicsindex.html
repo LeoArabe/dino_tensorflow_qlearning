@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitoramento do Algoritmo Genético</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div id="progressContainer">
+    <div id="progressBar"></div>
+  </div>
+  <h1>Monitoramento do Algoritmo Genético</h1>
+  <canvas id="fitnessChart" width="800" height="400"></canvas>
+
+  <script>
+    const socket = io();
+
+    let generationLabels = [];
+    let bestFitnessData = [];
+    let avgFitnessData = [];
+
+    const ctx = document.getElementById('fitnessChart').getContext('2d');
+    const fitnessChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: generationLabels,
+        datasets: [
+          {
+            label: 'Melhor Fitness',
+            data: bestFitnessData,
+            borderColor: 'rgba(75, 192, 192, 1)',
+            fill: false,
+          },
+          {
+            label: 'Fitness Médio',
+            data: avgFitnessData,
+            borderColor: 'rgba(153, 102, 255, 1)',
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        scales: {
+          x: {
+            title: {
+              display: true,
+              text: 'Geração',
+            },
+          },
+          y: {
+            title: {
+              display: true,
+              text: 'Fitness',
+            },
+            beginAtZero: true,
+          },
+        },
+      },
+    });
+
+    socket.on('generationData', (data) => {
+      generationLabels.length = 0;
+      bestFitnessData.length = 0;
+      avgFitnessData.length = 0;
+
+      data.forEach((genData) => {
+        generationLabels.push(`Geração ${genData.generation}`);
+        bestFitnessData.push(genData.bestFitness);
+        avgFitnessData.push(genData.avgFitness);
+      });
+
+      fitnessChart.update();
+    });
+  </script>
+</body>
+</html>

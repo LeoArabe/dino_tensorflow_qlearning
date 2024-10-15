@@ -1,75 +1,111 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Monitoramento do Algoritmo Genético</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Dino Game - Treinamento em Tempo Real</title>
+  <style>
+    canvas {
+      border: 1px solid black;
+      margin-bottom: 10px;
+    }
+  </style>
 </head>
 <body>
-  <h1>Monitoramento do Algoritmo Genético</h1>
-  <canvas id="fitnessChart" width="800" height="400"></canvas>
+  <h1>Dino Game - Treinamento em Tempo Real</h1>
+  <canvas id="gameCanvas" width="600" height="150"></canvas>
+  <p>Visualizando o treinamento dos agentes em tempo real.</p>
+
+  <!-- Importar o Socket.IO -->
+  <script src="/socket.io/socket.io.js"></script>
 
   <script>
-    const socket = io();
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
 
-    let generationLabels = [];
-    let bestFitnessData = [];
-    let avgFitnessData = [];
+    let gameStates = {};
 
-    const ctx = document.getElementById('fitnessChart').getContext('2d');
-    const fitnessChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: generationLabels,
-        datasets: [
-          {
-            label: 'Melhor Fitness',
-            data: bestFitnessData,
-            borderColor: 'rgba(75, 192, 192, 1)',
-            fill: false,
-          },
-          {
-            label: 'Fitness Médio',
-            data: avgFitnessData,
-            borderColor: 'rgba(153, 102, 255, 1)',
-            fill: false,
-          },
-        ],
-      },
-      options: {
-        scales: {
-          x: {
-            title: {
-              display: true,
-              text: 'Geração',
-            },
-          },
-          y: {
-            title: {
-              display: true,
-              text: 'Fitness',
-            },
-            beginAtZero: true,
-          },
-        },
-      },
+    // Conectar ao servidor via Socket.IO
+    // Conectar ao servidor via Socket.IO
+const socket = io.connect('http://localhost:3000');
+
+// Log para verificar se a conexão foi bem-sucedida
+socket.on('connect', () => {
+  console.log('Conectado ao servidor Socket.IO');
+});
+
+socket.on('connect_error', (err) => {
+  console.error('Erro de conexão com o Socket.IO:', err);
+});
+
+
+socket.on('gameState', (data) => {
+  console.log('Recebido gameState:', data);  // Verificar se os dados estão corretos
+  gameStates[data.workerId] = data.gameState;
+  renderGame(); // Certifique-se de que a função render está correta
+});
+
+
+    function drawTRex(tRex) {
+      if (!tRex || tRex.xPos === undefined || tRex.yPos === undefined) {
+        console.warn('tRex está undefined ou incompleto em drawTRex');
+        return;
+      }
+      ctx.fillStyle = 'green';
+      ctx.fillRect(tRex.xPos, canvas.height - tRex.height - tRex.yPos, tRex.width, tRex.height);
+    }
+
+    function drawObstacles(obstacles) {
+      if (!obstacles || obstacles.length === 0) {
+        console.warn('Obstáculos não estão definidos ou estão vazios');
+        return;
+      }
+      ctx.fillStyle = 'red';
+      obstacles.forEach(obstacle => {
+        if (obstacle.xPos !== undefined && obstacle.yPos !== undefined) {
+          ctx.fillRect(obstacle.xPos, canvas.height - obstacle.height - obstacle.yPos, obstacle.width, obstacle.height);
+        }
+      });
+    }
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function renderGame() {
+      clearCanvas();
+
+      // Desenhar os estados de todos os agentes
+      for (let workerId in gameStates) {
+        const gameState = gameStates[workerId];
+        if (gameState && gameState.tRex && !gameState.gameOver) {
+          drawTRex(gameState.tRex);
+          drawObstacles(gameState.obstacles);
+        } else if (gameState.gameOver) {
+          // Remover o gameState quando o jogo terminar
+          delete gameStates[workerId];
+        }
+      }
+    }
+
+    // Exibir dados da geração
+    socket.on('generationData', (data) => {
+      console.log('generation.on received')
+      const latestGeneration = data[data.length - 1];
+      if (latestGeneration) {
+        document.getElementById('generationInfo').innerText = `Geração: ${latestGeneration.generation}, Melhor Fitness: ${latestGeneration.bestFitness.toFixed(2)}, Fitness Médio: ${latestGeneration.avgFitness.toFixed(2)}`;
+      }
     });
 
-    // Receber dados do servidor via Socket.IO
-    socket.on('generationData', (data) => {
-      generationLabels.length = 0;
-      bestFitnessData.length = 0;
-      avgFitnessData.length = 0;
-
-      data.forEach((genData) => {
-        generationLabels.push(`Geração ${genData.generation}`);
-        bestFitnessData.push(genData.bestFitness);
-        avgFitnessData.push(genData.avgFitness);
-      });
-
-      fitnessChart.update();
+    // Exibir progresso da geração
+    socket.on('generationProgress', (data) => {
+      console.log('progress.on received')
+      if (data && data.progress) {
+        document.getElementById('generationProgress').innerText = `Progresso da Geração ${data.generation}: ${data.progress}%`;
+      }
     });
   </script>
+
+  <p id="generationInfo">Carregando dados da geração...</p>
+  <p id="generationProgress">Carregando progresso...</p>
 </body>
 </html>
