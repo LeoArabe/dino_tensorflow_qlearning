@@ -1,344 +1,327 @@
+/**************************************************
+ * server.js
+ **************************************************/
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
-const { Worker } = require('worker_threads');
-const tf = require('@tensorflow/tfjs-node-gpu');
+const socketIo = require('socket.io'); // se quiser usar sockets
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
+const { Worker } = require('worker_threads');
+const tf = require('@tensorflow/tfjs-node-gpu');  // ou tfjs-node-gpu
+const open = require('open');                // para abrir o browser
 
+// -------------------------------------------------
+// PARÂMETROS DO GA / TREINO
+// -------------------------------------------------
+const populationSize = 50;
+const maxGenerations = 100;
+const eliteSize = Math.floor(populationSize * 0.1);
+
+let population = [];         // array de { model: tf.LayersModel, fitness: number }
+let generationData = [];     // dados de cada geração para exibir no front
+let overallBestFitness = -Infinity;
+let overallBestModel = null;
+
+// Pasta para salvar modelos
+const modelsDir = path.join(__dirname, 'models');
+
+// -------------------------------------------------
+// EXPRESS / SERVER
+// -------------------------------------------------
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server); // Se quiser usar socket.io
 
-// Variáveis globais para armazenar dados para exibição
-let generationData = [];
+// Rota principal que serve a página do front-end (engineTraining.html)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '', 'TrainingInterface.html'));
+});
 
-// Servir arquivos estáticos da pasta 'public'
-app.use(express.static(path.join(__dirname, 'public')));
+// Iniciar servidor
+const PORT = 3000;
+server.listen(PORT, () => {
+  console.log(`Servidor rodando em http://localhost:${PORT}`);
+  // Abre automaticamente no navegador
+  open(`http://localhost:${PORT}`);
+});
 
-const numWorkers = os.cpus().length - 1; // Usar o número de CPUs disponíveis
-const populationSize = numWorkers;
-const maxGenerations = 300;
+// -------------------------------------------------
+// GARANTIR PASTA "models"
+function ensureModelsDirectory() {
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+    console.log('Pasta "models" criada com sucesso.');
+  } else {
+    console.log('Pasta "models" já existe.');
+  }
+}
+ensureModelsDirectory();
 
-// Definição de eliteSize
-const eliteSize = Math.max(1, Math.floor(populationSize * 0.2)); // Pelo menos 1
-
-let population = [];
-let generation = 0;
-
-// Função para criar um novo modelo com pesos aleatórios
-function createRandomModel() {
+// -------------------------------------------------
+// CRIAÇÃO / INICIALIZAÇÃO DO MODELO
+// -------------------------------------------------
+function createModel() {
   const model = tf.sequential();
+
   model.add(tf.layers.dense({
-    units: 32,
-    inputShape: [7],
+    units: 24,
     activation: 'relu',
-    kernelInitializer: 'heNormal'
+    inputShape: [7], // 7 entradas normalizadas
+    kernelInitializer: 'heNormal',
+    useBias: true
   }));
+
   model.add(tf.layers.dense({
     units: 16,
     activation: 'relu',
-    kernelInitializer: 'heNormal'
+    kernelInitializer: 'heNormal',
+    useBias: true
   }));
+
+  // Camada de Dropout
+  model.add(tf.layers.dropout({ rate: 0.2 }));
+
   model.add(tf.layers.dense({
-    units: 3,
-    activation: 'softmax'
+    units: 8,
+    activation: 'relu',
+    kernelInitializer: 'heNormal',
+    useBias: true
   }));
+
+  model.add(tf.layers.dense({
+    units: 3, // 0,1,2
+    activation: 'softmax',
+    useBias: true
+  }));
+
   return model;
 }
 
-// Função para determinar o número de instâncias por worker com base na geração atual
-function getNumInstancesPerWorker(currentGeneration, maxGenerations) {
-  const initialInstances = 1; // Ajuste conforme necessário
-  const finalInstances = 1; // Ajuste conforme necessário
-  
-  const ratio = currentGeneration / maxGenerations; // Progresso da geração
-  
-  // Interpolar entre o valor inicial e final
-  return Math.floor(initialInstances - (initialInstances - finalInstances) * ratio);
-}
-
-// Função para inicializar a população
+// -------------------------------------------------
+// INICIALIZAR POPULAÇÃO
+// -------------------------------------------------
 function initializePopulation() {
   population = [];
   for (let i = 0; i < populationSize; i++) {
-    const model = createRandomModel();
-    population.push({
-      model,
-      fitness: null,
-    });
+    const model = createModel();
+    population.push({ model, fitness: null });
   }
 }
 
-// Função para serializar os pesos do modelo
-function serializeWeights(model) {
-  return model.getWeights().map(t => t.arraySync());
-}
-
-// Função para desserializar os pesos
-function deserializeWeights(serializedWeights) {
-  return serializedWeights.map(w => tf.tensor(w));
-}
-
-// Função para obter a taxa de mutação adaptativa
-function getMutationRate(currentGeneration, maxGenerations) {
-  const initialRate = 0.3; // Taxa de mutação inicial alta
-  const finalRate = 0.01;  // Taxa de mutação final baixa
-  return initialRate - ((initialRate - finalRate) * (currentGeneration / maxGenerations));
-}
-
-// Função para obter a taxa de crossover adaptativa
-function getCrossoverRate(currentGeneration, maxGenerations) {
-  const initialRate = 0.9; // Taxa de crossover inicial alta
-  const finalRate = 0.6;   // Taxa de crossover final mais baixa
-  return initialRate - ((initialRate - finalRate) * (currentGeneration / maxGenerations));
-}
-
-// Função para obter o tamanho do torneio adaptativo
-function getTournamentSize(currentGeneration, maxGenerations) {
-  const initialSize = 2; // Tamanho inicial do torneio
-  const finalSize = 5;   // Tamanho final do torneio
-  return Math.floor(initialSize + ((finalSize - initialSize) * (currentGeneration / maxGenerations)));
-}
-
-// Função para seleção dos melhores indivíduos (elitismo)
-function selectElite(population) {
-  return population
+// -------------------------------------------------
+// GA: SELEÇÃO, CROSSOVER, MUTATION ...
+// (exemplo simplificado — ajuste conforme sua lógica)
+// -------------------------------------------------
+function selectElite(pop) {
+  return pop
     .sort((a, b) => b.fitness - a.fitness)
     .slice(0, eliteSize);
 }
 
-// Função para crossover entre dois pais
-function crossover(parent1, parent2, crossoverRate) {
-  const childModel = createRandomModel();
-  const parent1Weights = parent1.model.getWeights();
-  const parent2Weights = parent2.model.getWeights();
-
-  const childWeights = [];
-  for (let i = 0; i < parent1Weights.length; i++) {
-    const weight1 = parent1Weights[i];
-    const weight2 = parent2Weights[i];
-
-    // Gerar máscara de crossover com base na taxa de crossover adaptativa
-    const shape = weight1.shape;
-    const randMatrix = tf.randomUniform(shape, 0, 1);
-    const mask = tf.lessEqual(randMatrix, crossoverRate);
-
-    const weight1Masked = tf.mul(weight1, mask);
-    const weight2Masked = tf.mul(weight2, tf.logicalNot(mask));
-
-    const childWeight = tf.add(weight1Masked, weight2Masked);
-    childWeights.push(childWeight);
-  }
-
-  childModel.setWeights(childWeights);
-  return childModel;
-}
-
-// Função para mutação com taxa adaptativa
-function mutate(model, mutationRate) {
-  const weights = model.getWeights();
-  const mutatedWeights = weights.map(weight => {
-    const shape = weight.shape;
-    const dtype = weight.dtype;
-
-    // Gerar máscara de mutação com base na taxa adaptativa
-    const mutationMask = tf.randomUniform(shape, 0, 1).lessEqual(mutationRate);
-    const mutationValues = tf.randomNormal(shape, 0, 0.1);
-
-    const mutatedWeight = weight.add(mutationValues.mul(mutationMask.cast(dtype)));
-    return mutatedWeight;
-  });
-
-  model.setWeights(mutatedWeights);
-  return model;
-}
-
-// Função para seleção por torneio com pressão variável
-function tournamentSelection(population, tournamentSize) {
+function tournamentSelection(pop) {
+  // Exemplo fixo: torneio de 3
+  const tSize = 3;
   const tournament = [];
-  for (let i = 0; i < tournamentSize; i++) {
-    const randomIndex = Math.floor(Math.random() * population.length);
-    tournament.push(population[randomIndex]);
+  for (let i = 0; i < tSize; i++) {
+    const r = Math.floor(Math.random() * pop.length);
+    tournament.push(pop[r]);
   }
   tournament.sort((a, b) => b.fitness - a.fitness);
-  return tournament[0]; // Retorna o melhor do torneio
+  return tournament[0]; 
 }
 
-// Função para criar nova geração
-function createNextGeneration(elite, currentGeneration) {
-  const newPopulation = [];
+function crossover(modelA, modelB) {
+  // Exemplo simples: combina pesos 50/50
+  const child = createModel();
+  const wA = modelA.getWeights();
+  const wB = modelB.getWeights();
 
-  // Preservar a elite (elitismo)
-  for (let i = 0; i < elite.length; i++) {
-    newPopulation.push({
-      model: elite[i].model,
-      fitness: null,
+  const newWeights = wA.map((tensorA, i) => {
+    const tensorB = wB[i];
+    // shape e dtype
+    const shape = tensorA.shape;
+    const dtype = tensorA.dtype;
+
+    const arrA = tensorA.dataSync();
+    const arrB = tensorB.dataSync();
+    const newArr = arrA.map((val, idx) => {
+      return Math.random() < 0.5 ? val : arrB[idx];
     });
-  }
+    return tf.tensor(newArr, shape, dtype);
+  });
 
-  const mutationRate = getMutationRate(currentGeneration, maxGenerations);
-  const crossoverRate = getCrossoverRate(currentGeneration, maxGenerations);
-  const tournamentSize = getTournamentSize(currentGeneration, maxGenerations);
-
-  // Gerar novos indivíduos através de crossover e mutação
-  while (newPopulation.length < populationSize) {
-    const parent1 = tournamentSelection(population, tournamentSize);
-    const parent2 = tournamentSelection(population, tournamentSize);
-
-    let childModel = crossover(parent1, parent2, crossoverRate);
-    childModel = mutate(childModel, mutationRate);
-
-    newPopulation.push({
-      model: childModel,
-      fitness: null,
-    });
-  }
-
-  return newPopulation;
+  child.setWeights(newWeights);
+  return child;
 }
 
-// Função para avaliar a população
-function evaluatePopulation(currentGeneration) {
+function mutate(model) {
+  // Exemplo: chance de 1% para cada peso
+  const rate = 0.01;
+  const weights = model.getWeights();
+  const mutated = weights.map(t => {
+    const shape = t.shape;
+    const dtype = t.dtype;
+    const arr = t.dataSync();
+    const newArr = arr.map((val) => {
+      return Math.random() < rate
+        ? val + (Math.random() * 0.2 - 0.1)
+        : val;
+    });
+    return tf.tensor(newArr, shape, dtype);
+  });
+  model.setWeights(mutated);
+}
+
+function createNextGeneration(elite) {
+  const newPop = [];
+
+  // mantém a elite
+  elite.forEach(e => {
+    newPop.push({ model: e.model, fitness: null });
+  });
+
+  // completa população
+  while (newPop.length < populationSize) {
+    const p1 = tournamentSelection(population);
+    const p2 = tournamentSelection(population);
+    const childModel = crossover(p1.model, p2.model);
+    mutate(childModel);
+    newPop.push({ model: childModel, fitness: null });
+  }
+
+  return newPop;
+}
+
+// -------------------------------------------------
+// SALVAR MELHOR MODELO GLOBAL
+// -------------------------------------------------
+async function saveGlobalBestModel(model, generation, fitness) {
+  const modelName = `best-model-gen-${generation}-fitness-${fitness.toFixed(2)}`;
+  const modelPath = path.join(modelsDir, modelName);
+
+  try {
+    await model.save(`file://${modelPath}`);
+    console.log(`Melhor modelo salvo: geração ${generation}, fitness=${fitness.toFixed(2)}`);
+  } catch (err) {
+    console.error(`Erro ao salvar modelo:`, err);
+  }
+}
+
+// -------------------------------------------------
+// FUNÇÕES DE AVALIAÇÃO DOS INDIVÍDUOS
+// (onde chamamos os Workers para rodar o "game" e
+//  retornar o fitness de cada modelo)
+// -------------------------------------------------
+async function evaluatePopulation(generation) {
   return new Promise((resolve) => {
-    let workersFinished = 0;
-    const totalIndividuals = population.length;
-    const numInstancesPerWorker = getNumInstancesPerWorker(currentGeneration, maxGenerations);
+    let completed = 0;
+    const total = population.length;
 
-    for (let i = 0; i < population.length; i++) {
-      const individual = population[i];
+    population.forEach((individual, idx) => {
+      // Serializa pesos
+      const weightsArr = individual.model.getWeights().map(w => w.arraySync());
 
-      // Serializar os pesos do modelo para enviar ao worker
-      const modelWeights = serializeWeights(individual.model);
-
+      // Cria um Worker
       const worker = new Worker(path.resolve(__dirname, './worker.js'), {
         workerData: {
-          workerId: i,
-          numInstances: numInstancesPerWorker,
-          modelWeights: modelWeights,
-          currentGeneration: currentGeneration,
-          maxGenerations: maxGenerations,
-        },
-      });
-
-      worker.on('message', (message) => {
-        if (message.type === 'fitness') {
-          individual.fitness = message.fitness;
-          workersFinished++;
-
-          console.log(`Worker ${message.workerId} retornou fitness: ${message.fitness}`);
-
-          // Calcular o progresso em porcentagem
-          const progressPercentage = ((workersFinished / totalIndividuals) * 100).toFixed(2);
-          console.log(`Progresso da geração ${currentGeneration + 1}: ${progressPercentage}%`);
-
-          // Enviar o progresso para o front-end via Socket.IO
-          io.emit('generationProgress', {
-            generation: currentGeneration + 1,
-            progress: progressPercentage,
-          });
-
-          if (workersFinished === population.length) {
-            resolve();
-          }
-        } else if (message.type === 'gameState') {
-          // Enviar o estado do jogo para o cliente via Socket.IO
-          io.emit('gameState', {
-            workerId: message.workerId,
-            gameState: message.gameState,
-          });
+          workerId: idx,
+          modelWeights: weightsArr,
+          currentGeneration: generation,
+          maxGenerations
         }
       });
 
-      worker.on('error', (err) => {
-        console.error(`Erro no worker ${i}:`, err);
-        workersFinished++;
+      // Ouvir mensagens do Worker
+      worker.on('message', (msg) => {
+        if (msg.type === 'fitness') {
+          // Guardar fitness
+          individual.fitness = msg.fitness;
+          completed++;
 
-        if (workersFinished === population.length) {
+          console.log(`Worker ${msg.workerId} => fitness: ${msg.fitness} / gen:${generation}`);
+
+          if (completed === total) {
+            resolve();
+          }
+        }
+
+        if (msg.type === 'modelSaved') {
+          console.log(
+            `Worker ${msg.workerId} salvou um "melhor modelo" local: G=${msg.generation}, fit=${msg.fitness}`
+          );
+        }
+      });
+
+      worker.on('error', err => {
+        console.error(`Erro no Worker ${idx}`, err);
+        completed++;
+        if (completed === total) {
           resolve();
         }
       });
-
-      worker.on('exit', (code) => {
-        if (code !== 0) {
-          console.error(`Worker ${i} saiu com código ${code}`);
-        }
-      });
-    }
+    });
   });
 }
 
-// Função para salvar o melhor modelo em um diretório
-async function saveBestModel(model, generation, fitness) {
-  const modelDir = `./models/generation_${generation}`;
-  if (!fs.existsSync('./models')) {
-    fs.mkdirSync('./models');
-  }
-  // Salva o modelo completo no diretório especificado
-  await model.save(`file://${modelDir}`);
-
-  console.log(`Melhor modelo salvo em ${modelDir} com fitness ${fitness}`);
-}
-
-// Função principal para executar as gerações
+// -------------------------------------------------
+// LOOP PRINCIPAL: EXECUTAR GERAÇÕES
+// -------------------------------------------------
 async function runGenerations() {
   initializePopulation();
 
-  let overallBestIndividual = null;
+  for (let gen = 0; gen < maxGenerations; gen++) {
+    console.log(`\n=== Geração ${gen + 1} ===`);
 
-  for (generation = 0; generation < maxGenerations; generation++) {
-    console.log(`\nIniciando geração ${generation + 1}`);
+    // Avaliar
+    await evaluatePopulation(gen);
 
-    // Avaliar a população
-    await evaluatePopulation(generation);
+    // Pega estatísticas
+    const best = selectElite(population)[0];  // 1o da elite
+    const bestInGen = best.fitness;
+    const avg = population.reduce((acc, cur) => acc + cur.fitness, 0) / population.length;
 
-    // Seleção
-    const elite = selectElite(population);
-    console.log(`Melhor fitness da geração ${generation + 1}: ${elite[0].fitness}`);
+    console.log(`> Best fitness: ${bestInGen.toFixed(2)} | Avg: ${avg.toFixed(2)}`);
 
-    // Atualizar o melhor indivíduo geral
-    if (!overallBestIndividual || elite[0].fitness > overallBestIndividual.fitness) {
-      overallBestIndividual = {
-        model: elite[0].model,
-        fitness: elite[0].fitness,
-      };
-
-      // Salvar o melhor modelo encontrado até agora
-      await saveBestModel(overallBestIndividual.model, generation + 1, overallBestIndividual.fitness);
+    // Se for melhor que o global, salva
+    if (bestInGen > overallBestFitness) {
+      overallBestFitness = bestInGen;
+      overallBestModel = await cloneModel(best.model);
+      await saveGlobalBestModel(overallBestModel, gen + 1, overallBestFitness);
     }
 
-    // Coletar dados para exibição
-    const avgFitness = population.reduce((sum, ind) => sum + ind.fitness, 0) / population.length;
-    generationData.push({
-      generation: generation + 1,
-      bestFitness: elite[0].fitness,
-      avgFitness: avgFitness,
-    });
-
-    // Emitir dados para o cliente via Socket.IO
+    // Manda p/ front via socket.io (opcional)
+    generationData.push({ generation: gen + 1, best: bestInGen, avg: avg });
     io.emit('generationData', generationData);
 
-    // Criar nova geração
-    population = createNextGeneration(elite, generation);
+    // Nova pop
+    const elite = selectElite(population);
+    population = createNextGeneration(elite);
   }
 
-  console.log('Algoritmo genético concluído.');
-
-  // Salvar o melhor modelo final
-  await saveBestModel(overallBestIndividual.model, 'final', overallBestIndividual.fitness);
+  console.log('Treinamento concluído.');
+  if (overallBestModel) {
+    await saveGlobalBestModel(overallBestModel, 'final', overallBestFitness);
+  }
+  io.emit('done', { message: 'Treinamento concluído.' });
 }
 
-// Iniciar o servidor na porta 3000
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+// -------------------------------------------------
+// CLONE MODEL (ex.: para best global)
+// -------------------------------------------------
+async function cloneModel(originalModel) {
+  const newModel = createModel();
+  const originalWeights = originalModel.getWeights();
+  const clonedWeights = originalWeights.map(w => w.clone());
+  newModel.setWeights(clonedWeights);
 
-// Iniciar o algoritmo genético após o servidor estar rodando
-runGenerations();
+  // compila se precisar
+  newModel.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
+  return newModel;
+}
 
-// Rota para servir o arquivo HTML principal
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// -------------------------------------------------
+// INICIAR O GA
+// -------------------------------------------------
+runGenerations().catch(err => {
+  console.error('Erro no runGenerations:', err);
 });

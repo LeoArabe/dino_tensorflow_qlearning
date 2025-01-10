@@ -63,17 +63,15 @@ class GameEngine {
   }
 
   handleAction(action) {
+    // 0 = pular, 1 = duck, 2 = soltar (ficar em pé)
     if (action === 0 && !this.tRex.jumping && !this.tRex.ducking) {
-      // Pular
       this.tRex.jumping = true;
       this.tRex.velocityY = this.jumpVelocity;
     } else if (action === 1 && !this.tRex.jumping) {
-      // Abaixar
       this.tRex.ducking = true;
       this.tRex.height = 25;
       this.tRex.width = 59;
     } else if (action === 2) {
-      // Cancelar abaixar
       if (this.tRex.ducking) {
         this.tRex.ducking = false;
         this.tRex.height = 47;
@@ -122,33 +120,28 @@ class GameEngine {
     }
 
     return (
-      lastObstacle.xPos + lastObstacle.width <
+      lastObstacle.xPos + lastObstacle.width < 
       this.dimensions.WIDTH - this.nextObstacleDistance
     );
   }
 
   addNewObstacle() {
-    const obstacleTypes = this.score >= 300 ? [
-      // Variantes de cactos e pássaros após 300 pontos
-      { width: 30, height: 35, yPos: 0 },
-      { width: 40, height: 35, yPos: 0 },
-      { width: 50, height: 35, yPos: 0 },
-      { width: 70, height: 35, yPos: 0 },
-      { width: 25, height: 45, yPos: 0 },
-      { width: 45, height: 45, yPos: 0 },
-      { width: 75, height: 45, yPos: 0 },
-      { width: 30, height: 25, yPos: 30 }, // Pássaro voador baixo
-      { width: 30, height: 25, yPos: 80 }, // Pássaro voador alto
-    ] : [
-      // Cactos antes dos 300 pontos
-      { width: 30, height: 35, yPos: 0 },
-      { width: 40, height: 35, yPos: 0 },
-      { width: 50, height: 35, yPos: 0 },
-      { width: 70, height: 35, yPos: 0 },
-      { width: 25, height: 45, yPos: 0 },
-      { width: 45, height: 45, yPos: 0 },
-      { width: 75, height: 45, yPos: 0 },
-    ];
+    const obstacleTypes =
+      this.score >= 300
+        ? [
+            { width: 30, height: 35, yPos: 0 },
+            { width: 35, height: 35, yPos: 0 },
+            { width: 40, height: 35, yPos: 0 },
+            { width: 50, height: 35, yPos: 0 },
+            { width: 30, height: 45, yPos: 0 },
+            { width: 30, height: 25, yPos: 30 },
+            { width: 30, height: 25, yPos: 80 },
+          ]
+        : [
+            { width: 30, height: 35, yPos: 0 },
+            { width: 35, height: 35, yPos: 0 },
+            { width: 40, height: 35, yPos: 0 },
+          ];
 
     const obstacleType =
       obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
@@ -210,17 +203,15 @@ class GameEngine {
 
   getState() {
     return {
-      tRexX: this.tRex.xPos,
       tRexY: this.tRex.yPos,
       tRexVelocityY: this.tRex.velocityY,
-      tRexOnGround: this.tRex.yPos === 0 ? 1 : 0,
+      tRexX: this.tRex.xPos,
       obstacleX: this.obstacles.length > 0 ? this.obstacles[0].xPos : null,
-      obstacleY: this.obstacles.length > 0 ? this.obstacles[0].yPos : null,
       obstacleWidth: this.obstacles.length > 0 ? this.obstacles[0].width : null,
       obstacleHeight: this.obstacles.length > 0 ? this.obstacles[0].height : null,
+      currentSpeed: this.currentSpeed,
       score: this.score,
       gameOver: this.gameOver,
-      currentSpeed: this.currentSpeed,
     };
   }
 }
