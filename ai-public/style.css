@@ -1,0 +1,20 @@
+body {
+    margin: 0;
+    padding: 1rem;
+    font-family: sans-serif;
+    background-color: #f0f0f0;
+  }
+  
+  canvas {
+    border: 1px solid #333;
+    display: block;
+    margin: 0 auto;
+  }
+  
+  #info {
+    margin-top: 1rem;
+    font-size: 14px;
+    color: #444;
+    text-align: center;
+  }
+  
