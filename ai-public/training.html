@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Treinamento - Dino GA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>Treinamento - Dino GA</h1>
+  <div id="controls">
+    <label>População: <input type="number" id="populationSize" value="5000" min="1"></label>
+    <label>Elite (%): <input type="number" id="elitePercent" value="10" min="0" max="100"></label>
+    <button id="startTraining">Iniciar Treinamento</button>
+    <button id="stopTraining" disabled>Parar Treinamento</button>
+    <button id="switchToTest">Ir para Modo Teste</button>
+  </div>
+  <canvas id="gameCanvas" width="800" height="200"></canvas>
+  <div id="info"></div>
+
+  <!-- Scripts -->
+  <script src="ga.js"></script>
+  <script src="worker.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

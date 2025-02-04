@@ -1,98 +1,63 @@
-/************************************************** 
- * server.js (Node + Express)
- **************************************************/
+// server.js
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const openBrowser = require('open'); // Para abrir o navegador automaticamente
-
+const { exec } = require('child_process');
 const app = express();
-const PORT = 3000;
+const http = require('http');
+const server = http.createServer(app);
+const socketIo = require('socket.io');
+const io = socketIo(server);
+const port = 3000;
 
-// Middleware
 app.use(cors());
-app.use(express.json()); // Para interpretar JSON no corpo das requisições
-
-// Servir a pasta "public" como estática
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'ai-public')));
 
-// Rota principal -> index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'ai-public', 'index.html'));
-});
-
-// Caminho para o melhor modelo global
-const BEST_MODEL_FILE = path.join(__dirname, 'best-models', 'best_model_of_all_time.json');
+// Endpoint para salvar o melhor modelo (GA)
+const BEST_MODEL_FILE = path.join(__dirname, 'best-models', 'best_model.json');
+// Endpoint para salvar o best score de todos os tempos
+const BEST_SCORE_FILE = path.join(__dirname, 'best-models', 'best_score_of_all_time.json');
 
 // Garantir que a pasta 'best-models' exista
-const modelsDir = path.join(__dirname, 'best-models');
-if (!fs.existsSync(modelsDir)) {
-  fs.mkdirSync(modelsDir, { recursive: true });
+if (!fs.existsSync(path.join(__dirname, 'best-models'))) {
+  fs.mkdirSync(path.join(__dirname, 'best-models'), { recursive: true });
   console.log('[server] Pasta "best-models" criada.');
 }
 
-// Rota para salvar o melhor modelo global
-app.post('/save-model', (req, res) => {
-  const { modelData, fitness, bestAllTime } = req.body;
-
-  // Validar os dados recebidos
-  if (!modelData || fitness == null) {
+app.post('/api/save-best-model', (req, res) => {
+  const { bestModel, bestFitness } = req.body;
+  if (!bestModel || bestFitness === undefined) {
     return res.status(400).json({ message: 'Dados insuficientes para salvar o modelo.' });
   }
-
-  let model;
-  try {
-    model = JSON.parse(modelData);
-  } catch (err) {
-    return res.status(400).json({ message: 'Dados do modelo inválidos.' });
-  }
-
-  // Montar o objeto a ser salvo
-  const modelToSave = {
-    fitness: parseFloat(fitness),
-    brain: model
+  const modelData = {
+    bestFitness,
+    bestModel,
+    time: Date.now()
   };
-
-  let filename;
-  if (bestAllTime) {
-    // Se for o melhor de todos os tempos, sobrescreve o arquivo fixo
-    filename = 'best_model_of_all_time.json';
-  } else {
-    // Caso contrário, usa um nome com timestamp (opcional, mas não será usado atualmente)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    filename = `best_model_${timestamp}.json`;
-  }
-
-  const filepath = path.join(modelsDir, filename);
-
-  // Salvar o modelo como JSON de forma assíncrona
-  fs.writeFile(filepath, JSON.stringify(modelToSave, null, 2), (err) => {
+  fs.writeFile(BEST_MODEL_FILE, JSON.stringify(modelData, null, 2), err => {
     if (err) {
       console.error('Erro ao salvar o modelo:', err);
       return res.status(500).json({ message: 'Erro ao salvar o modelo.' });
     }
-
-    console.log(`[server] Modelo salvo: ${filename} | Fitness: ${fitness.toFixed(2)}`);
-    res.status(200).json({ message: 'Modelo salvo com sucesso.', filename });
+    console.log(`[server] Melhor modelo salvo com fitness: ${bestFitness}`);
+    res.status(200).json({ message: 'Modelo salvo com sucesso.' });
   });
 });
 
-// Rota para obter o melhor modelo global
-app.get('/best-model', (req, res) => {
+app.get('/api/best-model', (req, res) => {
   if (!fs.existsSync(BEST_MODEL_FILE)) {
     return res.status(404).json({ message: 'Nenhum modelo salvo ainda.' });
   }
-
   fs.readFile(BEST_MODEL_FILE, 'utf8', (err, data) => {
     if (err) {
-      console.error('Erro ao ler o melhor modelo:', err);
+      console.error('Erro ao ler o modelo:', err);
       return res.status(500).json({ message: 'Erro ao ler o modelo.' });
     }
-
     try {
-      const model = JSON.parse(data);
-      res.status(200).json(model);
+      const modelData = JSON.parse(data);
+      res.status(200).json(modelData);
     } catch (parseErr) {
       console.error('Erro ao parsear o modelo:', parseErr);
       res.status(500).json({ message: 'Dados do modelo inválidos.' });
@@ -100,14 +65,45 @@ app.get('/best-model', (req, res) => {
   });
 });
 
-// Inicia servidor
-app.listen(PORT, () => {
-  console.log(`[server] Rodando em http://localhost:${PORT}`);
-  
-  // Abrir no navegador automaticamente (opcional)
-  try {
-    openBrowser(`http://localhost:${PORT}`);
-  } catch (err) {
-    console.log('Falha ao abrir o navegador:', err.message);
+// Endpoints para o best score de todos os tempos
+app.post('/api/save-best-score', (req, res) => {
+  const { bestScore } = req.body;
+  if (bestScore === undefined) {
+    return res.status(400).json({ message: 'Best score não fornecido.' });
   }
+  const scoreData = {
+    bestScore,
+    time: Date.now()
+  };
+  fs.writeFile(BEST_SCORE_FILE, JSON.stringify(scoreData, null, 2), err => {
+    if (err) {
+      console.error('Erro ao salvar o best score:', err);
+      return res.status(500).json({ message: 'Erro ao salvar o best score.' });
+    }
+    console.log(`[server] Best score salvo: ${bestScore}`);
+    res.status(200).json({ message: 'Best score salvo com sucesso.' });
+  });
+});
+
+app.get('/api/best-score', (req, res) => {
+  if (!fs.existsSync(BEST_SCORE_FILE)) {
+    return res.status(404).json({ message: 'Nenhum best score salvo ainda.' });
+  }
+  fs.readFile(BEST_SCORE_FILE, 'utf8', (err, data) => {
+    if (err) {
+      console.error('Erro ao ler o best score:', err);
+      return res.status(500).json({ message: 'Erro ao ler o best score.' });
+    }
+    try {
+      const scoreData = JSON.parse(data);
+      res.status(200).json(scoreData);
+    } catch (parseErr) {
+      console.error('Erro ao parsear o best score:', parseErr);
+      res.status(500).json({ message: 'Dados do best score inválidos.' });
+    }
+  });
+});
+
+server.listen(port, () => {
+  console.log(`Servidor rodando na porta ${port}`);
 });
