@@ -1,16 +1,65 @@
-# T-Rex Runner
+# Dino Q-Learning
 
-T-Rex Runner is an Easter Egg in Google Chrome which appears when you suddenly lose internet access. [Here](https://www.blog.google/products/chrome/chrome-dino/) is the origin of this game.
+[Portugues](#portugues) | [English](#english)
 
-The dino game is extracted from the Chromium [source code](https://cs.chromium.org/chromium/src/components/neterror/resources/offline.js) in commit `24d8c44`
+---
 
-## Controls
+## Portugues
 
-* Press the space bar to jump and to start the game
-* Use the down arrow key to duck
+### Sobre
+Clone do jogo Chrome Dino com um agente de IA que aprende a jogar usando Q-Learning e TensorFlow.js. O modelo treina observando o estado do jogo e aprende automaticamente quando pular ou abaixar.
 
-## How to play
+### Tecnologias
+- JavaScript
+- TensorFlow.js (GPU)
+- Puppeteer (automacao do navegador)
+- Express + Socket.IO
+- Node.js
 
-You can click [here](https://congerh.github.io/dino/) to play online.
+### Como rodar
+```bash
+npm install
+npm start
+```
 
-You can also play the origin Chrome dino game without turning off your network connections. Just open `chrome://dino` in your web browser, and you’ll be taken to an "arcade mode" where you can practice in a full-window environment.
+O treinamento sera iniciado automaticamente. O modelo treinado e salvo na pasta `model/`.
+
+### Como funciona
+1. O Puppeteer abre o jogo no navegador
+2. O agente observa o estado do jogo (distancia e tamanho dos obstaculos)
+3. O modelo de Q-Learning decide a acao (pular, abaixar ou nada)
+4. O agente aprende com recompensas e penalidades a cada partida
+
+### Status
+Projeto funcional com modelo treinado.
+
+---
+
+## English
+
+### About
+Chrome Dino game clone with an AI agent that learns to play using Q-Learning and TensorFlow.js. The model trains by observing the game state and automatically learns when to jump or duck.
+
+### Tech Stack
+- JavaScript
+- TensorFlow.js (GPU)
+- Puppeteer (browser automation)
+- Express + Socket.IO
+- Node.js
+
+### How to run
+```bash
+npm install
+npm start
+```
+
+Training will start automatically. The trained model is saved in the `model/` folder.
+
+### How it works
+1. Puppeteer opens the game in the browser
+2. The agent observes the game state (distance and size of obstacles)
+3. The Q-Learning model decides the action (jump, duck or nothing)
+4. The agent learns from rewards and penalties each round
+
+### Status
+Functional project with trained model.
